@@ -50,7 +50,9 @@
   "dependencies": {
     "@tweenjs/tween.js": "18 - 25",
     "accessor-fn": "1",
+    "express": "^5.2.1",
     "kapsule": "^1.16",
+    "snowflake-sdk": "^2.3.4",
     "three": ">=0.154 <1",
     "three-globe": "^2.45",
     "three-render-objects": "^1.40"

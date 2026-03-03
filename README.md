@@ -82,6 +82,34 @@ const myGlobe = new Globe(myDOMElement)
   .pointsData(myData);
 ```
 
+### Running the Snowflake-connected demo
+
+To exercise the custom `world-population` example that shows a
+Snowflake status globe and an accounts summary table in the bottom
+right, you'll need a small backend proxy:
+
+1. Install node dependencies in the project root:
+   ```sh
+   npm install express snowflake-sdk
+   ```
+2. Set the following environment variables:
+   ```sh
+   export SNOWFLAKE_ACCOUNT=<your account>
+   export SNOWFLAKE_USERNAME=<user>
+   export SNOWFLAKE_PASSWORD=<password>
+   export SNOWFLAKE_WAREHOUSE=<warehouse>  # optional
+   ```
+3. Start the server:
+   ```sh
+   node server.js
+   ```
+4. Open `http://localhost:3000` in your browser.  The globe will load
+   the public Status API and the `/accounts` endpoint will run the
+   query against `temp.tam.accounts_detail_dt` returning columns
+   `cloud`, `deployment` and `cnt` (count of account_id).
+
+Feel free to modify the SQL or UI as necessary.
+
 ## API reference
 
 * [Initialisation](#initialisation)

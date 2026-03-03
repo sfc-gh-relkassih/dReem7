@@ -9,31 +9,541 @@
   <div id="globeViz"></div>
 
   <script type="module">
-    import { csvParse } from 'https://esm.sh/d3-dsv';
-    import { scaleSequentialSqrt } from 'https://esm.sh/d3-scale';
-    import { interpolateYlOrRd } from 'https://esm.sh/d3-scale-chromatic';
+    // Deployment name to lat/lng mapping for Snowflake regions
+    const DEPLOYMENT_COORDS = {
+      // AWS
+      au:                     { lat: -33.87, lng: 151.21 },
+      awsafsouth1:            { lat: -33.92, lng: 18.42 },
+      awsapnortheast1:        { lat: 35.68, lng: 139.65 },
+      awsapnortheast2:        { lat: 37.57, lng: 126.98 },
+      awsapnortheast3:        { lat: 34.69, lng: 135.50 },
+      awsapsouth1:            { lat: 19.08, lng: 72.88 },
+      awsapsoutheast1sg:      { lat: 1.35, lng: 103.82 },
+      awsapsoutheast3:        { lat: -6.21, lng: 106.85 },
+      awscacentral1:          { lat: 45.50, lng: -73.57 },
+      awseucentral2:          { lat: 47.38, lng: 8.54 },
+      awseucentral2hassium:   { lat: 47.38, lng: 8.54 },
+      awseunorth1:            { lat: 59.33, lng: 18.07 },
+      awseuwest2:             { lat: 51.51, lng: -0.13 },
+      awseuwest3:             { lat: 48.86, lng: 2.35 },
+      awssaeast1:             { lat: -23.55, lng: -46.63 },
+      awsuseast1amzwh:        { lat: 38.95, lng: -77.45 },
+      awsuseast1citi:         { lat: 38.95, lng: -77.45 },
+      awsuseast1dtcc:         { lat: 38.95, lng: -77.45 },
+      awsuseast1goldman:      { lat: 38.95, lng: -77.45 },
+      awsuseast1gov:          { lat: 38.95, lng: -77.45 },
+      awsuseast1hassium:      { lat: 38.95, lng: -77.45 },
+      awsuseast1istamdce:     { lat: 38.95, lng: -77.45 },
+      awsuseast2:             { lat: 40.42, lng: -82.91 },
+      awsuseast2amzwh:        { lat: 40.42, lng: -82.91 },
+      awsusgovwest1fhplus:    { lat: 45.52, lng: -122.67 },
+      awsuswest2dtcc:         { lat: 45.52, lng: -122.67 },
+      awsuswest2hassium:      { lat: 45.52, lng: -122.67 },
+      awsuswest2istamdcc:     { lat: 45.52, lng: -122.67 },
+      eufrankfurt:            { lat: 50.11, lng: 8.68 },
+      ie:                     { lat: 53.35, lng: -6.26 },
+      prod1:                  { lat: 45.52, lng: -122.67 },
+      prod2:                  { lat: 45.52, lng: -122.67 },
+      prod3:                  { lat: 45.52, lng: -122.67 },
+      va:                     { lat: 38.95, lng: -77.45 },
+      va2:                    { lat: 38.95, lng: -77.45 },
+      va3:                    { lat: 38.95, lng: -77.45 },
+      va4:                    { lat: 38.95, lng: -77.45 },
+      // Azure
+      azaustraliaeast:        { lat: -33.87, lng: 151.21 },
+      azcanadacentral:        { lat: 43.65, lng: -79.38 },
+      azcentralindia:         { lat: 18.52, lng: 73.86 },
+      azeastus2prod:          { lat: 36.68, lng: -78.13 },
+      azeastus2prodshard2:    { lat: 36.68, lng: -78.13 },
+      azjapaneast:            { lat: 35.68, lng: 139.65 },
+      azkoreacentral:         { lat: 37.57, lng: 126.98 },
+      azmexicocentral:        { lat: 19.43, lng: -99.13 },
+      aznortheurope:          { lat: 53.35, lng: -6.26 },
+      azsouthcentralus:       { lat: 29.42, lng: -98.49 },
+      azsoutheastasia:        { lat: 1.35, lng: 103.82 },
+      azswitzerlandnorth:     { lat: 47.38, lng: 8.54 },
+      azuaenorth:             { lat: 25.20, lng: 55.27 },
+      azuksouth:              { lat: 51.51, lng: -0.13 },
+      azurecentralus:         { lat: 41.59, lng: -93.63 },
+      azurecentraluswh:       { lat: 41.59, lng: -93.63 },
+      azusgovvirginia:        { lat: 38.95, lng: -77.45 },
+      azwesteurope:           { lat: 52.37, lng: 4.90 },
+      azwestus2:              { lat: 47.61, lng: -122.33 },
+      azwh:                   { lat: 47.61, lng: -122.33 },
+      // GCP
+      gcpeuropewest2:         { lat: 51.51, lng: -0.13 },
+      gcpeuropewest3:         { lat: 50.11, lng: 8.68 },
+      gcpeuropewest4:         { lat: 53.35, lng: 6.82 },
+      gcpmecentral2:          { lat: 26.39, lng: 49.98 },
+      gcpuscentral1:          { lat: 41.59, lng: -93.63 },
+      gcpuseast4:             { lat: 39.03, lng: -77.47 }
+    };
 
-    const weightColor = scaleSequentialSqrt(interpolateYlOrRd)
-      .domain([0, 1e7]);
+    const STATUS_COLORS = {
+      operational: '#4caf50',
+      degraded_performance: '#ff9800',
+      partial_outage: '#ff5722',
+      major_outage: '#f44336'
+    };
 
-    const world = new Globe(document.getElementById('globeViz'))
+    const globeEl = document.getElementById('globeViz');
+
+    // create slim status banner at top
+    const statusBar = document.createElement('div');
+    statusBar.id = 'status-bar';
+    statusBar.style.position = 'fixed';
+    statusBar.style.top = '0';
+    statusBar.style.left = '0';
+    statusBar.style.width = '100%';
+    statusBar.style.minHeight = '28px';
+    statusBar.style.lineHeight = '28px';
+    statusBar.style.padding = '0 12px';
+    statusBar.style.background = 'rgba(0,0,0,0.7)';
+    statusBar.style.color = '#fff';
+    statusBar.style.fontFamily = 'sans-serif';
+    statusBar.style.fontSize = '13px';
+    statusBar.style.zIndex = 10001;
+    statusBar.textContent = 'Loading Snowflake status...';
+    document.body.appendChild(statusBar);
+
+    // Store unresolved incidents globally so outage labels can use them
+    let unresolvedIncidents = [];
+
+    // fetch overall status and unresolved incidents in parallel
+    Promise.all([
+      fetch('https://status.snowflake.com/api/v2/status.json').then(r => r.json()).catch(() => null),
+      fetch('https://status.snowflake.com/api/v2/incidents/unresolved.json').then(r => r.json()).catch(() => null)
+    ]).then(([sdata, incData]) => {
+      const colors = { none: '#4caf50', minor: '#ff9800', major: '#f44336', critical: '#d32f2f', unknown: '#9e9e9e' };
+      const ind = sdata && sdata.status && sdata.status.indicator;
+      const desc = sdata && sdata.status && sdata.status.description;
+
+      const incidents = (incData && Array.isArray(incData.incidents)) ? incData.incidents : [];
+      unresolvedIncidents = incidents;
+
+      let html = `<strong>Snowflake: ${desc || 'unknown'}</strong>`;
+
+      if (incidents.length > 0) {
+        const impactColors = { none: '#4caf50', minor: '#ff9800', major: '#f44336', critical: '#d32f2f' };
+        html += `<span style="margin-left:16px;opacity:0.8">${incidents.length} unresolved incident${incidents.length > 1 ? 's' : ''}:</span>`;
+        incidents.forEach(inc => {
+          const iColor = impactColors[inc.impact] || '#9e9e9e';
+          const latestUpdate = (inc.incident_updates && inc.incident_updates[0])
+            ? inc.incident_updates[0].body.replace(/<[^>]*>/g, '').slice(0, 120)
+            : '';
+          html += `<span style="margin-left:12px;color:${iColor}">&#9679;</span> `;
+          html += `<span>${inc.name} (${inc.status})</span>`;
+          if (latestUpdate) {
+            html += `<span style="margin-left:6px;opacity:0.7;font-size:12px">— ${latestUpdate}${latestUpdate.length >= 120 ? '...' : ''}</span>`;
+          }
+        });
+      }
+
+      html += `<div style="font-size:11px;opacity:0.8;line-height:20px">Visit <a href="https://status.snowflake.com" target="_blank" style="color:#fff;text-decoration:underline">status.snowflake.com</a> for details</div>`;
+      statusBar.innerHTML = html;
+      statusBar.style.background = colors[ind] || 'rgba(0,0,0,0.7)';
+    }).catch(() => {
+      statusBar.textContent = 'Unable to load Snowflake status';
+    });
+
+    // Status color mapping: green=operational, yellow=degraded, orange=partial, red=major
+    const HEX_STATUS_COLORS = {
+      operational: '#4caf50',
+      degraded_performance: '#ffeb3b',
+      partial_outage: '#ff9800',
+      major_outage: '#f44336'
+    };
+    const STATUS_SEVERITY = { operational: 0, degraded_performance: 1, partial_outage: 2, major_outage: 3 };
+
+    // Pick the worst status from all points in a hex bin
+    function hexBinColor(d) {
+      let worst = 'operational';
+      if (d.points) {
+        d.points.forEach(p => {
+          const st = p.status || 'operational';
+          if ((STATUS_SEVERITY[st] || 0) > (STATUS_SEVERITY[worst] || 0)) worst = st;
+        });
+      }
+      return HEX_STATUS_COLORS[worst] || HEX_STATUS_COLORS.operational;
+    }
+
+    const world = new Globe(globeEl)
       .globeImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg')
       .bumpImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png')
       .backgroundImageUrl('//cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png')
-      .hexBinPointWeight('pop')
-      .hexAltitude(d => d.sumWeight * 6e-8)
+      .hexBinPointWeight('cnt')
+      .hexAltitude(d => d.sumWeight * 4e-4)
       .hexBinResolution(4)
-      .hexTopColor(d => weightColor(d.sumWeight))
-      .hexSideColor(d => weightColor(d.sumWeight))
+      .hexTopColor(hexBinColor)
+      .hexSideColor(hexBinColor)
       .hexBinMerge(true)
-      .enablePointerInteraction(false); // performance improvement
+      .hexLabel(d => {
+        try {
+          const pts = d.points || [];
+          if (!pts.length) return '';
+          const rows = pts.map(p => `<tr><td style="padding:2px 8px 2px 0">${p.deployment || '—'}</td><td style="padding:2px 0;text-align:right">${(p.cnt || 0).toLocaleString()} accts</td></tr>`).join('');
+          const total = pts.reduce((s, p) => s + (p.cnt || 0), 0);
+          const worst = pts.reduce((w, p) => (STATUS_SEVERITY[p.status] || 0) > (STATUS_SEVERITY[w] || 0) ? p.status : w, 'operational');
+          const clr = HEX_STATUS_COLORS[worst] || HEX_STATUS_COLORS.operational;
+          return `<div style="background:rgba(0,0,0,0.85);color:#fff;padding:8px 12px;border-radius:6px;font-family:sans-serif;font-size:12px;min-width:160px;border:1px solid ${clr}">
+            <div style="font-weight:700;margin-bottom:4px;font-size:13px"><span style="color:${clr}">&#9679;</span> ${worst.replace(/_/g,' ')}</div>
+            <table style="width:100%;border-collapse:collapse">${rows}</table>
+            <div style="border-top:1px solid rgba(255,255,255,0.15);margin-top:4px;padding-top:4px;font-weight:600">Total: ${total.toLocaleString()} accounts</div>
+          </div>`;
+        } catch(e) { return ''; }
+      });
 
-    fetch('../datasets/world_population.csv').then(res => res.text())
-      .then(csv => csvParse(csv, ({ lat, lng, pop }) => ({ lat: +lat, lng: +lng, pop: +pop })))
-      .then(data => world.hexBinPointsData(data));
-
-    // Add auto-rotation
+    // Auto-rotate
     world.controls().autoRotate = true;
     world.controls().autoRotateSpeed = 0.6;
+
+    function normalizeStatus(s) {
+      if (!s) return 'operational';
+      return s.toLowerCase().replace(/\s+/g, '_');
+    }
+
+    function providerForName(name) {
+      if (!name) return 'Unknown';
+      const n = name.toLowerCase();
+      if (n.includes('aws')) return 'AWS';
+      if (n.includes('azure') || n.includes('microsoft')) return 'Azure';
+      if (n.includes('google') || n.includes('gcp') || n.includes('cloud')) return 'GCP';
+      return 'Other';
+    }
+
+    // Build legend container
+    const legend = document.createElement('div');
+    legend.style.position = 'fixed';
+    legend.style.left = '12px';
+    legend.style.bottom = '12px';
+    legend.style.width = '300px';
+    legend.style.maxHeight = '320px';
+    legend.style.background = 'rgba(0,0,0,0.6)';
+    legend.style.color = '#fff';
+    legend.style.fontFamily = 'sans-serif';
+    legend.style.fontSize = '13px';
+    legend.style.borderRadius = '6px';
+    legend.style.overflow = 'hidden';
+    legend.style.zIndex = 9999;
+    legend.innerHTML = `
+      <div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <strong style="flex:1">Regions</strong>
+        <div style="opacity:0.8;font-size:12px">Click a region to focus</div>
+      </div>
+      <div id="legend-tabs" style="display:flex;border-bottom:1px solid rgba(255,255,255,0.04)"></div>
+      <div id="legend-contents" style="padding:8px;overflow:auto;max-height:240px;background:linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.1))"></div>
+    `;
+    document.body.appendChild(legend);
+
+    const tabsEl = legend.querySelector('#legend-tabs');
+    const contentsEl = legend.querySelector('#legend-contents');
+
+    const providers = ['AWS', 'Azure', 'GCP'];
+    let currentProvider = 'AWS';
+    let allRegions = [];
+
+    // bottom-right accounts summary
+    const accountsDiv = document.createElement('div');
+    accountsDiv.style.position = 'fixed';
+    accountsDiv.style.right = '12px';
+    accountsDiv.style.bottom = '12px';
+    accountsDiv.style.width = '280px';
+    accountsDiv.style.maxHeight = '320px';
+    accountsDiv.style.background = 'rgba(0,0,0,0.6)';
+    accountsDiv.style.color = '#fff';
+    accountsDiv.style.fontFamily = 'sans-serif';
+    accountsDiv.style.fontSize = '13px';
+    accountsDiv.style.borderRadius = '6px';
+    accountsDiv.style.overflow = 'hidden';
+    accountsDiv.innerHTML = `
+      <div style="display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <strong style="flex:1">Accounts</strong>
+      </div>
+      <div id="acct-tabs" style="display:flex;border-bottom:1px solid rgba(255,255,255,0.04)"></div>
+      <div id="acct-table" style="padding:8px;overflow:auto;max-height:220px;background:linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.1))">loading...</div>
+    `;
+    document.body.appendChild(accountsDiv);
+
+    let currentAccountProvider = 'AWS';
+    let allAccountsData = [];
+
+    providers.forEach(p => {
+      const b = document.createElement('button');
+      b.textContent = p;
+      b.style.flex = '1';
+      b.style.padding = '8px';
+      b.style.border = 'none';
+      b.style.background = 'transparent';
+      b.style.color = 'inherit';
+      b.style.cursor = 'pointer';
+      b.onclick = () => { currentProvider = p; renderLegend(allRegions); };
+      tabsEl.appendChild(b);
+    });
+
+    function coordsForName(name) {
+      if (!name) return null;
+      const REGION_COORDS = [
+        { match: 'AWS - US West', lat: 45.52, lng: -122.67 },
+        { match: 'AWS - US East (N. Virginia)', lat: 38.95, lng: -77.45 },
+        { match: 'AWS - US East (Ohio)', lat: 40.42, lng: -82.91 },
+        { match: 'AWS - Canada', lat: 45.50, lng: -73.57 },
+        { match: 'AWS - Europe (London)', lat: 51.51, lng: -0.13 },
+        { match: 'AWS - Europe (Frankfurt)', lat: 50.11, lng: 8.68 },
+        { match: 'AWS - Europe (Stockholm)', lat: 59.33, lng: 18.07 },
+        { match: 'AWS - Asia Pacific (Mumbai)', lat: 19.08, lng: 72.88 },
+        { match: 'AWS - Asia Pacific (Singapore)', lat: 1.35, lng: 103.82 },
+        { match: 'AWS - Asia Pacific (Jakarta)', lat: -6.21, lng: 106.85 },
+        { match: 'AWS - Asia Pacific (Seoul)', lat: 37.57, lng: 126.98 },
+        { match: 'AWS - Asia Pacific (Sydney)', lat: -33.87, lng: 151.21 },
+        { match: 'AWS - Asia Pacific (Tokyo)', lat: 35.68, lng: 139.65 },
+        { match: 'AWS - Middle East', lat: 25.20, lng: 55.27 },
+        { match: 'Azure - West US', lat: 47.61, lng: -122.33 },
+        { match: 'Azure - Central US', lat: 41.59, lng: -93.63 },
+        { match: 'Azure - East US', lat: 36.68, lng: -78.13 },
+        { match: 'Azure - Canada', lat: 43.65, lng: -79.38 },
+        { match: 'Azure - North Europe', lat: 53.35, lng: -6.26 },
+        { match: 'Azure - UK South', lat: 51.51, lng: -0.13 },
+        { match: 'Azure - West Europe', lat: 52.37, lng: 4.90 },
+        { match: 'Azure - Switzerland', lat: 47.38, lng: 8.54 },
+        { match: 'Azure - UAE', lat: 25.20, lng: 55.27 },
+        { match: 'Azure - Central India', lat: 18.52, lng: 73.86 },
+        { match: 'Azure - Southeast Asia', lat: 1.35, lng: 103.82 },
+        { match: 'Azure - Korea', lat: 37.57, lng: 126.98 },
+        { match: 'Azure - Japan', lat: 35.68, lng: 139.65 },
+        { match: 'Azure - Australia', lat: -33.87, lng: 151.21 },
+        { match: 'Azure - Mexico', lat: 19.43, lng: -99.13 },
+        { match: 'GCP - US Central', lat: 41.59, lng: -93.63 },
+        { match: 'GCP - US East', lat: 39.03, lng: -77.47 },
+        { match: 'GCP - Europe West', lat: 52.37, lng: 4.90 },
+        { match: 'GCP - Middle East', lat: 26.39, lng: 49.98 },
+        { match: 'GCP - Australia', lat: -37.81, lng: 144.96 },
+      ];
+      for (const r of REGION_COORDS) {
+        if (name.indexOf(r.match) !== -1) return { lat: r.lat, lng: r.lng };
+      }
+      return { lat: 0, lng: 0 };
+    }
+
+    function renderLegend(regions = []) {
+      contentsEl.innerHTML = '';
+      const filtered = regions.filter(r => {
+        if (!r.name) return false;
+        const name = r.name.toLowerCase();
+        if (currentProvider === 'AWS') return name.includes('aws');
+        if (currentProvider === 'Azure') return name.includes('azure') || name.includes('microsoft');
+        if (currentProvider === 'GCP') return name.includes('google') || name.includes('gcp');
+        return true;
+      });
+
+      for (const btn of tabsEl.children) {
+        btn.style.fontWeight = (btn.textContent === currentProvider) ? '700' : '400';
+      }
+
+      if (!filtered.length) {
+        contentsEl.textContent = 'No regions found for this provider';
+        return;
+      }
+
+      filtered.forEach(r => {
+        const item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.padding = '6px 4px';
+        item.style.cursor = 'pointer';
+        item.onmouseover = () => item.style.background = 'rgba(255,255,255,0.03)';
+        item.onmouseout = () => item.style.background = 'transparent';
+        const dot = document.createElement('div');
+        const st = normalizeStatus(r.status);
+        dot.style.width = '12px';
+        dot.style.height = '12px';
+        dot.style.borderRadius = '6px';
+        dot.style.marginRight = '8px';
+        dot.style.background = STATUS_COLORS[st] || STATUS_COLORS.operational;
+        const label = document.createElement('div');
+        label.style.flex = '1';
+        label.textContent = r.name;
+        const s = document.createElement('div');
+        s.style.opacity = 0.8;
+        s.textContent = r.status;
+        item.appendChild(dot);
+        item.appendChild(label);
+        item.appendChild(s);
+        item.onclick = () => {
+          const c = coordsForName(r.name);
+          world.pointOfView({ lat: c.lat, lng: c.lng, altitude: 1.5 }, 800);
+        };
+        contentsEl.appendChild(item);
+      });
+    }
+
+    // Fetch both status and accounts, then build hex bins with status colors
+    Promise.all([
+      fetch('https://status.snowflake.com/api/v2/components.json').then(r => r.json()).catch(() => ({ components: [] })),
+      fetch('/accounts').then(r => r.json()).catch(() => [])
+    ]).then(([statusJson, accountsData]) => {
+      // Build status region data for legend
+      const comps = Array.isArray(statusJson.components) ? statusJson.components : [];
+      const regions = comps
+        .filter(c => c.group || !c.group_id)
+        .filter(c => {
+          const n = (c.name || '').toLowerCase();
+          return n.includes('aws') || n.includes('azure') || n.includes('microsoft') || n.includes('gcp') || n.includes('google');
+        })
+        .map(c => {
+          let worstStatus = normalizeStatus(c.status);
+          if (c.group) {
+            comps.filter(ch => ch.group_id === c.id).forEach(ch => {
+              const st = normalizeStatus(ch.status);
+              if ((STATUS_SEVERITY[st] || 0) > (STATUS_SEVERITY[worstStatus] || 0)) worstStatus = st;
+            });
+          }
+          return { name: c.name, status: worstStatus, providers: [providerForName(c.name)] };
+        });
+
+      allRegions = regions;
+      renderLegend(allRegions);
+
+      // Build a coord-key to worst-status lookup from status regions
+      // Map status region names to their coordinates and status
+      const coordStatusMap = {};
+      regions.forEach(r => {
+        const c = coordsForName(r.name);
+        if (c) {
+          const key = `${c.lat.toFixed(2)},${c.lng.toFixed(2)}`;
+          const existing = coordStatusMap[key];
+          if (!existing || (STATUS_SEVERITY[r.status] || 0) > (STATUS_SEVERITY[existing] || 0)) {
+            coordStatusMap[key] = r.status;
+          }
+        }
+      });
+
+      // Build hex data from accounts with status attached
+      if (!Array.isArray(accountsData)) accountsData = [];
+      allAccountsData = accountsData;
+
+      const hexData = accountsData
+        .map(r => {
+          const coord = DEPLOYMENT_COORDS[r.DEPLOYMENT];
+          if (!coord) { console.warn('No coords for deployment:', r.DEPLOYMENT); return null; }
+          const key = `${coord.lat.toFixed(2)},${coord.lng.toFixed(2)}`;
+          const status = coordStatusMap[key] || 'operational';
+          return { lat: coord.lat, lng: coord.lng, cnt: r.COUNT_OF_ACCOUNTS, status, deployment: r.DEPLOYMENT };
+        })
+        .filter(Boolean);
+
+      world.hexBinPointsData(hexData);
+
+      // Place persistent HTML labels next to regions with any non-operational status
+      const outageRegions = regions.filter(r => r.status !== 'operational');
+      if (outageRegions.length > 0) {
+        const incidentSummary = unresolvedIncidents.map(inc => {
+          const latestBody = (inc.incident_updates && inc.incident_updates[0])
+            ? inc.incident_updates[0].body.replace(/<[^>]*>/g, '').slice(0, 200)
+            : '';
+          return { name: inc.name, status: inc.status, impact: inc.impact, body: latestBody };
+        });
+
+        const htmlData = outageRegions.map(r => {
+          const c = coordsForName(r.name);
+          return { lat: c.lat, lng: c.lng, regionName: r.name, status: r.status, incidents: incidentSummary };
+        });
+
+        world
+          .htmlElementsData(htmlData)
+          .htmlLat(d => d.lat)
+          .htmlLng(d => d.lng)
+          .htmlAltitude(0.05)
+          .htmlTransitionDuration(0)
+          .htmlElement(d => {
+            const el = document.createElement('div');
+            el.style.cssText = 'transform:translate(12px,-50%);cursor:pointer;pointer-events:auto !important';
+            const clr = HEX_STATUS_COLORS[d.status] || HEX_STATUS_COLORS.operational;
+            const bgClr = d.status === 'major_outage' ? 'rgba(180,20,20,0.9)' : d.status === 'partial_outage' ? 'rgba(200,80,0,0.9)' : 'rgba(180,160,0,0.9)';
+
+            // Collapsed: small pill with region name
+            const pill = document.createElement('div');
+            pill.style.cssText = `background:${bgClr};color:#fff;padding:3px 8px;border-radius:10px;font-family:sans-serif;font-size:10px;font-weight:600;white-space:nowrap;border:1px solid ${clr};box-shadow:0 1px 6px ${clr}44;display:flex;align-items:center;gap:4px;pointer-events:auto`;
+            pill.innerHTML = `<span>&#9888;</span><span>${d.regionName.replace(/^(AWS|Azure|GCP) - /, '')}</span>`;
+
+            // Expanded: full incident details
+            const detail = document.createElement('div');
+            detail.style.cssText = `display:none;background:${bgClr};color:#fff;padding:8px 10px;border-radius:6px;font-family:sans-serif;font-size:11px;border:1px solid ${clr};box-shadow:0 2px 12px ${clr}44;width:220px;max-height:200px;overflow-y:auto;pointer-events:auto`;
+            let detailHtml = `<div style="font-weight:700;font-size:12px;margin-bottom:4px">&#9888; ${d.regionName} <span style="font-weight:400;opacity:0.8">(${d.status.replace(/_/g,' ')})</span></div>`;
+            d.incidents.forEach(inc => {
+              detailHtml += `<div style="margin-bottom:4px"><div style="font-weight:600;font-size:11px">${inc.name} <span style="opacity:0.7;font-weight:400">(${inc.status})</span></div>`;
+              if (inc.body) detailHtml += `<div style="opacity:0.85;margin-top:1px;font-size:10px;line-height:1.3">${inc.body}${inc.body.length >= 200 ? '...' : ''}</div>`;
+              detailHtml += `</div>`;
+            });
+            detail.innerHTML = detailHtml;
+
+            let expanded = false;
+            pill.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              expanded = true;
+              pill.style.display = 'none';
+              detail.style.display = 'block';
+            });
+            detail.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              expanded = false;
+              pill.style.display = 'flex';
+              detail.style.display = 'none';
+            });
+
+            el.appendChild(pill);
+            el.appendChild(detail);
+
+            // Force pointer-events on parent containers after insertion
+            requestAnimationFrame(() => {
+              let node = el.parentElement;
+              while (node && node !== document.body) {
+                if (getComputedStyle(node).pointerEvents === 'none') {
+                  node.style.pointerEvents = 'auto';
+                }
+                node = node.parentElement;
+              }
+            });
+
+            return el;
+          });
+      }
+
+      // Accounts table
+      const acctTabsEl = accountsDiv.querySelector('#acct-tabs');
+      providers.forEach(p => {
+        const b = document.createElement('button');
+        b.textContent = p;
+        b.style.flex = '1';
+        b.style.padding = '8px';
+        b.style.border = 'none';
+        b.style.background = 'transparent';
+        b.style.color = 'inherit';
+        b.style.cursor = 'pointer';
+        b.onclick = () => { currentAccountProvider = p; renderAccounts(allAccountsData); };
+        acctTabsEl.appendChild(b);
+      });
+
+      function renderAccounts(data = []) {
+        const tbl = document.getElementById('acct-table');
+        const filtered = data.filter(r => r.CLOUD.toUpperCase() === currentAccountProvider.toUpperCase());
+
+        for (const btn of acctTabsEl.children) {
+          btn.style.fontWeight = (btn.textContent === currentAccountProvider) ? '700' : '400';
+        }
+
+        if (!filtered.length) {
+          tbl.innerHTML = '<div style="padding:8px;opacity:0.7;">No accounts for this provider</div>';
+          return;
+        }
+
+        tbl.innerHTML = '<table style="width:100%;color:#fff;font-size:12px"><tr><th style="text-align:left">deploy</th><th style="text-align:right">count</th></tr>' +
+          filtered.map(r => `<tr><td style="text-align:left">${r.DEPLOYMENT}</td><td style="text-align:right">${r.COUNT_OF_ACCOUNTS}</td></tr>`).join('') +
+          '</table>';
+      }
+
+      renderAccounts(accountsData);
+    }).catch(err => { console.error('Failed to load data', err); });
   </script>
 </body>
