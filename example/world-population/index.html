@@ -193,9 +193,8 @@
         } catch(e) { return ''; }
       });
 
-    // Auto-rotate
-    world.controls().autoRotate = true;
-    world.controls().autoRotateSpeed = 0.6;
+    // No auto-rotate on idle
+    world.controls().autoRotate = false;
 
     function normalizeStatus(s) {
       if (!s) return 'operational';
@@ -494,17 +493,6 @@
 
             el.appendChild(pill);
             el.appendChild(detail);
-
-            // Force pointer-events on parent containers after insertion
-            requestAnimationFrame(() => {
-              let node = el.parentElement;
-              while (node && node !== document.body) {
-                if (getComputedStyle(node).pointerEvents === 'none') {
-                  node.style.pointerEvents = 'auto';
-                }
-                node = node.parentElement;
-              }
-            });
 
             return el;
           });
